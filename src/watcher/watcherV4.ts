@@ -96,12 +96,12 @@ export class WatcherV4 extends WatchProcess {
 
     private async onLogChangedV4(settings: AppSettings): Promise<void> {
         const start = performance.now();
-        const shownDeviceHandle = settings.shownDeviceHandle;
+        const shownDeviceHandle = settings.shownDeviceHandle || '';
 
         try {
             const log = await fsa.readFile(this.synapseV4LogPath!, { encoding: 'utf8' });
 
-            // Ловим все возможные форматы с батареей
+            // Ловим все сообщения с устройствами
             const regex = /^\[(?<timestamp>.+?)\].*?(connectingDeviceData|mapDevices|SYNAPSE_DEVICES_SET).*?(?<json>\[[\s\S]*?\])/gm;
 
             let matches: { timestamp: string; jsonStr: string }[] = [];
@@ -123,21 +123,20 @@ export class WatcherV4 extends WatchProcess {
 
             this.latestParsedTimeStamp = last.timestamp;
 
-            // Парсим как any, чтобы TS не ругался
             let raw: any = JSON.parse(last.jsonStr);
-
-            // Если пришёл объект {devices: [...]}, берём массив
             if (raw && typeof raw === 'object' && !Array.isArray(raw) && Array.isArray(raw.devices)) {
                 raw = raw.devices;
             }
 
-            const devices: LoggedDeviceInfoV4[] = Array.isArray(raw) ? raw : [];
+            const parsedDevices: LoggedDeviceInfoV4[] = Array.isArray(raw) ? raw : [];
 
-            // Очищаем и обновляем только устройства с батареей
-            this.devices.clear();
+            console.log(`[V4] Last message has ${parsedDevices.length} devices, ${parsedDevices.filter(d => d.hasBattery).length} with battery`);
 
-            devices.filter(d => d.hasBattery === true).forEach(device => {
+            // Обновляем ТОЛЬКО батареечные устройства (не очищаем карту!)
+            let updated = 0;
+            parsedDevices.filter(d => d.hasBattery === true).forEach(device => {
                 const handle = device.serialNumber || device.deviceContainerId || 'UNKNOWN';
+                if (handle === 'UNKNOWN') return;
 
                 this.devices.set(handle, {
                     name: device.name?.en || device.productName?.en || 'Unknown Device',
@@ -147,10 +146,17 @@ export class WatcherV4 extends WatchProcess {
                     isCharging: device.powerStatus?.chargingStatus === 'Charging',
                     isSelected: shownDeviceHandle === handle || shownDeviceHandle === '',
                 });
+                updated++;
             });
 
-            console.log(`[V4] ✅ Parsed ${this.devices.size} battery device(s) at ${last.timestamp}`);
-            console.log(`[V4] Battery levels:`, [...this.devices.values()].map(d => `${d.name} — ${d.batteryPercentage}%`));
+            if (updated === 0 && this.devices.size > 0) {
+                console.log('[V4] No battery update in this message — keeping previous data');
+            }
+
+            console.log(`[V4] ✅ Total battery devices in map: ${this.devices.size}`);
+            console.log(`[V4] Current:`, [...this.devices.values()].map(d => 
+                `${d.name} — ${d.batteryPercentage}% ${d.isCharging ? '⚡' : ''}`
+            ));
 
             this.trayManager.onDeviceUpdate(this.devices);
 
