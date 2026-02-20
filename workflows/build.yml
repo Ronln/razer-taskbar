@@ -1,8 +1,11 @@
-name: Build Windows Installer
+name: Build Razer Taskbar
 
 on:
+  push:
+    branches: [ main, master ]
   release:
-    types: [created]   # запустится автоматически при создании релиза
+    types: [created]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -24,7 +27,17 @@ jobs:
       - name: Build the app
         run: npm run make
 
-      - name: Upload installer to release
+      # ←←← ЭТО НОВОЕ: сохраняем .exe для ручного запуска
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: razer-taskbar-installer
+          path: out/make/**/*.exe
+          if-no-files-found: warn
+
+      # Автоматически прикрепляем к релизу (как раньше)
+      - name: Upload to release
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
           files: out/make/**/*.exe
