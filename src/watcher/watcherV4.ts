@@ -75,11 +75,7 @@ export class WatcherV4 extends WatchProcess {
                 .map(name => {
                     const fullPath = path.resolve(SynapseV4LogDir, name);
                     const stat = fs.statSync(fullPath);
-                    return { 
-                        name, 
-                        fullPath, 
-                        mtime: stat.mtime.getTime() 
-                    };
+                    return { name, fullPath, mtime: stat.mtime.getTime() };
                 });
 
             if (candidates.length === 0) {
@@ -87,11 +83,10 @@ export class WatcherV4 extends WatchProcess {
                 return;
             }
 
-            // Самый свежий файл по времени (а не по номеру)
             candidates.sort((a, b) => b.mtime - a.mtime);
             this.synapseV4LogPath = candidates[0].fullPath;
 
-            console.log(`[V4] ✅ Selected: ${candidates[0].name} (modified ${new Date(candidates[0].mtime).toLocaleString()})`);
+            console.log(`[V4] ✅ Selected newest: ${candidates[0].name}`);
         } catch (e) {
             console.error(`[V4] Error selecting log: ${e}`);
         }
@@ -106,41 +101,39 @@ export class WatcherV4 extends WatchProcess {
         try {
             const log = await fsa.readFile(this.synapseV4LogPath!, { encoding: 'utf8' });
 
-            // Новый regex — ловит ВСЕ форматы с батареей
+            // Ловим все возможные форматы с батареей
             const regex = /^\[(?<timestamp>.+?)\].*?(connectingDeviceData|mapDevices|SYNAPSE_DEVICES_SET).*?(?<json>\[[\s\S]*?\])/gm;
 
-            let matches: any[] = [];
+            let matches: { timestamp: string; jsonStr: string }[] = [];
             let match;
             while ((match = regex.exec(log)) !== null) {
-                matches.push({
-                    timestamp: match.groups!.timestamp,
-                    jsonStr: match.groups!.json.trim()
-                });
+                matches.push({ timestamp: match.groups!.timestamp, jsonStr: match.groups!.json.trim() });
             }
 
             if (matches.length === 0) {
-                console.warn('[V4] No device data found in log');
+                console.warn('[V4] No device data in log');
                 return;
             }
 
-            // Берём САМОЕ ПОСЛЕДНЕЕ сообщение
             const last = matches[matches.length - 1];
 
             if (this.latestParsedTimeStamp === last.timestamp) {
-                return; // ничего нового
+                return;
             }
 
             this.latestParsedTimeStamp = last.timestamp;
 
-            // Парсим JSON
-            let devices: LoggedDeviceInfoV4[] = JSON.parse(last.jsonStr);
+            // Парсим как any, чтобы TS не ругался
+            let raw: any = JSON.parse(last.jsonStr);
 
-            // Если это объект {devices: [...]}, берём массив
-            if (devices && !Array.isArray(devices) && devices.devices) {
-                devices = devices.devices;
+            // Если пришёл объект {devices: [...]}, берём массив
+            if (raw && typeof raw === 'object' && !Array.isArray(raw) && Array.isArray(raw.devices)) {
+                raw = raw.devices;
             }
 
-            // Обновляем только устройства с батареей
+            const devices: LoggedDeviceInfoV4[] = Array.isArray(raw) ? raw : [];
+
+            // Очищаем и обновляем только устройства с батареей
             this.devices.clear();
 
             devices.filter(d => d.hasBattery === true).forEach(device => {
@@ -157,7 +150,7 @@ export class WatcherV4 extends WatchProcess {
             });
 
             console.log(`[V4] ✅ Parsed ${this.devices.size} battery device(s) at ${last.timestamp}`);
-            console.log(`[V4] Devices:`, [...this.devices.values()].map(d => `${d.name} — ${d.batteryPercentage}%`));
+            console.log(`[V4] Battery levels:`, [...this.devices.values()].map(d => `${d.name} — ${d.batteryPercentage}%`));
 
             this.trayManager.onDeviceUpdate(this.devices);
 
