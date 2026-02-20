@@ -101,7 +101,6 @@ export class WatcherV4 extends WatchProcess {
         try {
             const log = await fsa.readFile(this.synapseV4LogPath!, { encoding: 'utf8' });
 
-            // Ловим все сообщения с устройствами
             const regex = /^\[(?<timestamp>.+?)\].*?(connectingDeviceData|mapDevices|SYNAPSE_DEVICES_SET).*?(?<json>\[[\s\S]*?\])/gm;
 
             let matches: { timestamp: string; jsonStr: string }[] = [];
@@ -111,13 +110,14 @@ export class WatcherV4 extends WatchProcess {
             }
 
             if (matches.length === 0) {
-                console.warn('[V4] No device data in log');
+                console.warn('[V4] ❌ No device data found in log');
                 return;
             }
 
             const last = matches[matches.length - 1];
 
             if (this.latestParsedTimeStamp === last.timestamp) {
+                console.log('[V4] No new timestamp');
                 return;
             }
 
@@ -130,10 +130,10 @@ export class WatcherV4 extends WatchProcess {
 
             const parsedDevices: LoggedDeviceInfoV4[] = Array.isArray(raw) ? raw : [];
 
-            console.log(`[V4] Last message has ${parsedDevices.length} devices, ${parsedDevices.filter(d => d.hasBattery).length} with battery`);
+            console.log(`[V4] 📦 Last message: ${parsedDevices.length} devices, ${parsedDevices.filter(d => d.hasBattery).length} with battery`);
 
-            // Обновляем ТОЛЬКО батареечные устройства (не очищаем карту!)
-            let updated = 0;
+            // Обновляем только устройства с батареей, НЕ очищаем карту!
+            let updatedCount = 0;
             parsedDevices.filter(d => d.hasBattery === true).forEach(device => {
                 const handle = device.serialNumber || device.deviceContainerId || 'UNKNOWN';
                 if (handle === 'UNKNOWN') return;
@@ -146,22 +146,22 @@ export class WatcherV4 extends WatchProcess {
                     isCharging: device.powerStatus?.chargingStatus === 'Charging',
                     isSelected: shownDeviceHandle === handle || shownDeviceHandle === '',
                 });
-                updated++;
+                updatedCount++;
             });
 
-            if (updated === 0 && this.devices.size > 0) {
-                console.log('[V4] No battery update in this message — keeping previous data');
+            if (updatedCount === 0) {
+                console.log('[V4] ⚠️ No battery device in this message — keeping previous devices');
             }
 
-            console.log(`[V4] ✅ Total battery devices in map: ${this.devices.size}`);
-            console.log(`[V4] Current:`, [...this.devices.values()].map(d => 
-                `${d.name} — ${d.batteryPercentage}% ${d.isCharging ? '⚡' : ''}`
+            console.log(`[V4] ✅ Final map size: ${this.devices.size}`);
+            console.log(`[V4] Devices now:`, [...this.devices.values()].map(d => 
+                `${d.name} — ${d.batteryPercentage}% ${d.isCharging ? '⚡' : '🔋'}`
             ));
 
             this.trayManager.onDeviceUpdate(this.devices);
 
         } catch (e: any) {
-            console.error(`[V4] Parse error: ${e.message}`);
+            console.error(`[V4] 💥 Parse error: ${e.message}`);
         }
     }
 }
