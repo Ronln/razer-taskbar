@@ -87,19 +87,38 @@ export class RazerWatcher {
     }
 
     private getV4Candidates(): LogFileInfo[] {
-        try {
-            if (!fs.existsSync(SynapseV4LogDir)) { return []; }
+    try {
+        if (!fs.existsSync(SynapseV4LogDir)) { 
+            return []; 
+        }
 
-            const fileNameRegex = /^systray_systrayv\d(?<index>\d*).log$/;
-            const candidates: LogFileInfo[] = fs.readdirSync(SynapseV4LogDir).filter(x => fileNameRegex.test(x)).map(x => ({
-                fileName: x,
-                modifyTime: fs.statSync(path.resolve(SynapseV4LogDir, x)).mtime,
-                sequenceIndex: parseInt(fileNameRegex.exec(x).groups["index"] || "-1")
-            }));
+        // Точный regex специально под текущий формат Razer Synapse 4 (v2 + любые цифры)
+        const fileNameRegex = /^systray_systrayv2(?<index>\d*)\.log$/i;
 
-            candidates.sort((a, b) => b.sequenceIndex - a.sequenceIndex);
-            return candidates;
-        } catch (e) { console.log(`Error finding Synapse 4 log files: ${e}`); }
-        return [];
+        const candidates: LogFileInfo[] = fs.readdirSync(SynapseV4LogDir)
+            .filter(x => fileNameRegex.test(x))
+            .map(x => {
+                const match = fileNameRegex.exec(x)!;
+                const indexStr = match.groups?.["index"] || "";
+                return {
+                    fileName: x,
+                    modifyTime: fs.statSync(path.resolve(SynapseV4LogDir, x)).mtime,
+                    sequenceIndex: indexStr ? parseInt(indexStr, 10) : 0   // v2.log → 0, v221 → 21 и т.д.
+                };
+            });
+
+        // Самое важное улучшение: сначала сортируем по времени модификации (самый свежий файл всегда первым)
+        // fallback — по номеру ротации
+        candidates.sort((a, b) => {
+            const timeDiff = b.modifyTime.getTime() - a.modifyTime.getTime();
+            if (timeDiff !== 0) return timeDiff;
+            return b.sequenceIndex - a.sequenceIndex;
+        });
+
+        return candidates;
+    } catch (e) { 
+        console.error(`Error finding Synapse 4 log files: ${e}`); 
+        return []; 
     }
+}
 }
