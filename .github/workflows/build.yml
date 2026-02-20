@@ -24,20 +24,29 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # ←←← АВТОМАТИЧЕСКИ СТАВИМ ВЕРСИЮ ИЗ ТЕГА РЕЛИЗА
+      - name: Set version from GitHub Release tag
+        if: github.event_name == 'release'
+        run: npm version ${{ github.event.release.tag_name }} --no-git-tag-version
+
       - name: Build the app
         run: npm run make
 
-      # ←←← ЭТО НОВОЕ: сохраняем .exe для ручного запуска
-      - name: Upload artifact
+      # Debug — покажет, какие .exe собрались
+      - name: Show built files
+        shell: pwsh
+        run: Get-ChildItem -Path "out/make" -Recurse | Select-Object Name, Length
+
+      - name: Upload artifact (для ручного запуска)
         uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: razer-taskbar-installer
-          path: out/make/**/*.exe
-          if-no-files-found: warn
+          path: out/make/*.exe
+          retention-days: 14
 
-      # Автоматически прикрепляем к релизу (как раньше)
-      - name: Upload to release
+      - name: Attach installer to GitHub Release
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
-          files: out/make/**/*.exe
+          files: out/make/*.exe
