@@ -1,8 +1,8 @@
 name: Build Razer Taskbar
 
 on:
-  push:
-    branches: [ main, master ]
+ # push:
+  #  branches: [ main, master ]
   release:
     types: [created]
   workflow_dispatch:
